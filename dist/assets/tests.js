@@ -42,7 +42,7 @@ define('tasks01/tests/app.lint-test', [], function () {
 
   QUnit.test('routes/fb.js', function (assert) {
     assert.expect(1);
-    assert.ok(true, 'routes/fb.js should pass ESLint\n\n');
+    assert.ok(false, 'routes/fb.js should pass ESLint\n\n8:66 - \'authorization\' is defined but never used. (no-unused-vars)');
   });
 
   QUnit.test('routes/rentals.js', function (assert) {
@@ -143,6 +143,24 @@ define('tasks01/tests/helpers/start-app', ['exports', 'tasks01/app', 'tasks01/co
       application.setupForTesting();
       application.injectTestHelpers();
       return application;
+    });
+  }
+});
+define('tasks01/tests/helpers/torii', ['exports', 'tasks01/config/environment'], function (exports, _environment) {
+  'use strict';
+
+  Object.defineProperty(exports, "__esModule", {
+    value: true
+  });
+  exports.stubValidSession = stubValidSession;
+  var sessionServiceName = _environment.default.torii.sessionServiceName;
+  function stubValidSession(application, sessionData) {
+    var session = application.__container__.lookup('service:' + sessionServiceName);
+
+    var sm = session.get('stateMachine');
+    Ember.run(function () {
+      sm.send('startOpen');
+      sm.send('finishOpen', sessionData);
     });
   }
 });

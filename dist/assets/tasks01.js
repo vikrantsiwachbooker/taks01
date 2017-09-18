@@ -809,6 +809,14 @@ define('tasks01/components/rental-listing', ['exports'], function (exports) {
   });
   exports.default = Ember.Component.extend({});
 });
+define('tasks01/components/torii-iframe-placeholder', ['exports', 'torii/components/torii-iframe-placeholder'], function (exports, _toriiIframePlaceholder) {
+  'use strict';
+
+  Object.defineProperty(exports, "__esModule", {
+    value: true
+  });
+  exports.default = _toriiIframePlaceholder.default;
+});
 define('tasks01/components/welcome-page', ['exports', 'ember-welcome-page/components/welcome-page'], function (exports, _welcomePage) {
   'use strict';
 
@@ -1058,6 +1066,80 @@ define('tasks01/initializers/export-application-global', ['exports', 'tasks01/co
     initialize: initialize
   };
 });
+define('tasks01/initializers/initialize-torii-callback', ['exports', 'tasks01/config/environment', 'torii/redirect-handler'], function (exports, _environment, _redirectHandler) {
+  'use strict';
+
+  Object.defineProperty(exports, "__esModule", {
+    value: true
+  });
+  exports.default = {
+    name: 'torii-callback',
+    before: 'torii',
+    initialize: function initialize(application) {
+      if (arguments[1]) {
+        // Ember < 2.1
+        application = arguments[1];
+      }
+      if (_environment.default.torii && _environment.default.torii.disableRedirectInitializer) {
+        return;
+      }
+      application.deferReadiness();
+      _redirectHandler.default.handle(window).catch(function () {
+        application.advanceReadiness();
+      });
+    }
+  };
+});
+define('tasks01/initializers/initialize-torii-session', ['exports', 'torii/bootstrap/session', 'torii/configuration'], function (exports, _session, _configuration) {
+  'use strict';
+
+  Object.defineProperty(exports, "__esModule", {
+    value: true
+  });
+  exports.default = {
+    name: 'torii-session',
+    after: 'torii',
+
+    initialize: function initialize(application) {
+      if (arguments[1]) {
+        // Ember < 2.1
+        application = arguments[1];
+      }
+      var configuration = (0, _configuration.getConfiguration)();
+      if (!configuration.sessionServiceName) {
+        return;
+      }
+
+      (0, _session.default)(application, configuration.sessionServiceName);
+
+      var sessionFactoryName = 'service:' + configuration.sessionServiceName;
+      application.inject('adapter', configuration.sessionServiceName, sessionFactoryName);
+    }
+  };
+});
+define('tasks01/initializers/initialize-torii', ['exports', 'torii/bootstrap/torii', 'torii/configuration', 'tasks01/config/environment'], function (exports, _torii, _configuration, _environment) {
+  'use strict';
+
+  Object.defineProperty(exports, "__esModule", {
+    value: true
+  });
+
+
+  var initializer = {
+    name: 'torii',
+    initialize: function initialize(application) {
+      if (arguments[1]) {
+        // Ember < 2.1
+        application = arguments[1];
+      }
+      (0, _configuration.configure)(_environment.default.torii || {});
+      (0, _torii.default)(application);
+      application.inject('route', 'torii', 'service:torii');
+    }
+  };
+
+  exports.default = initializer;
+});
 define('tasks01/initializers/injectStore', ['exports'], function (exports) {
   'use strict';
 
@@ -1119,6 +1201,56 @@ define("tasks01/instance-initializers/ember-data", ["exports", "ember-data/insta
   exports.default = {
     name: "ember-data",
     initialize: _initializeStoreService.default
+  };
+});
+define('tasks01/instance-initializers/setup-routes', ['exports', 'torii/bootstrap/routing', 'torii/configuration', 'torii/compat/get-router-instance', 'torii/compat/get-router-lib', 'torii/router-dsl-ext'], function (exports, _routing, _configuration, _getRouterInstance, _getRouterLib) {
+  'use strict';
+
+  Object.defineProperty(exports, "__esModule", {
+    value: true
+  });
+  exports.default = {
+    name: 'torii-setup-routes',
+    initialize: function initialize(applicationInstance, registry) {
+      var configuration = (0, _configuration.getConfiguration)();
+
+      if (!configuration.sessionServiceName) {
+        return;
+      }
+
+      var router = (0, _getRouterInstance.default)(applicationInstance);
+      var setupRoutes = function setupRoutes() {
+        var routerLib = (0, _getRouterLib.default)(router);
+        var authenticatedRoutes = routerLib.authenticatedRoutes;
+        var hasAuthenticatedRoutes = !Ember.isEmpty(authenticatedRoutes);
+        if (hasAuthenticatedRoutes) {
+          (0, _routing.default)(applicationInstance, authenticatedRoutes);
+        }
+        router.off('willTransition', setupRoutes);
+      };
+      router.on('willTransition', setupRoutes);
+    }
+  };
+});
+define('tasks01/instance-initializers/walk-providers', ['exports', 'torii/lib/container-utils', 'torii/configuration'], function (exports, _containerUtils, _configuration) {
+  'use strict';
+
+  Object.defineProperty(exports, "__esModule", {
+    value: true
+  });
+  exports.default = {
+    name: 'torii-walk-providers',
+    initialize: function initialize(applicationInstance) {
+      var configuration = (0, _configuration.getConfiguration)();
+      // Walk all configured providers and eagerly instantiate
+      // them. This gives providers with initialization side effects
+      // like facebook-connect a chance to load up assets.
+      for (var key in configuration.providers) {
+        if (configuration.providers.hasOwnProperty(key)) {
+          (0, _containerUtils.lookup)(applicationInstance, 'torii-provider:' + key);
+        }
+      }
+    }
   };
 });
 define('tasks01/mirage/config', ['exports'], function (exports) {
@@ -1291,7 +1423,19 @@ define('tasks01/routes/fb', ['exports'], function (exports) {
   Object.defineProperty(exports, "__esModule", {
     value: true
   });
-  exports.default = Ember.Route.extend({});
+  exports.default = Ember.Route.extend({
+    actions: {
+      signInToComment: function signInToComment() {
+        var controller = this.controllerFor('post');
+        // The provider name is passed to `open`
+        this.get('torii').open('facebook-connect').then(function (authorization) {
+          // FB.api is now available. authorization contains the UID and
+          // accessToken.
+          controller.set('hasFacebook', true);
+        });
+      }
+    }
+  });
 });
 define('tasks01/routes/rentals', ['exports'], function (exports) {
   'use strict';
@@ -1358,6 +1502,45 @@ define('tasks01/services/maps', ['exports', 'tasks01/utils/google-maps'], functi
     }
   });
 });
+define('tasks01/services/popup', ['exports', 'torii/services/popup'], function (exports, _popup) {
+  'use strict';
+
+  Object.defineProperty(exports, "__esModule", {
+    value: true
+  });
+  Object.defineProperty(exports, 'default', {
+    enumerable: true,
+    get: function () {
+      return _popup.default;
+    }
+  });
+});
+define('tasks01/services/torii-session', ['exports', 'torii/services/torii-session'], function (exports, _toriiSession) {
+  'use strict';
+
+  Object.defineProperty(exports, "__esModule", {
+    value: true
+  });
+  Object.defineProperty(exports, 'default', {
+    enumerable: true,
+    get: function () {
+      return _toriiSession.default;
+    }
+  });
+});
+define('tasks01/services/torii', ['exports', 'torii/services/torii'], function (exports, _torii) {
+  'use strict';
+
+  Object.defineProperty(exports, "__esModule", {
+    value: true
+  });
+  Object.defineProperty(exports, 'default', {
+    enumerable: true,
+    get: function () {
+      return _torii.default;
+    }
+  });
+});
 define("tasks01/templates/application", ["exports"], function (exports) {
   "use strict";
 
@@ -1388,7 +1571,7 @@ define("tasks01/templates/fb", ["exports"], function (exports) {
   Object.defineProperty(exports, "__esModule", {
     value: true
   });
-  exports.default = Ember.HTMLBars.template({ "id": "uS5yKf5p", "block": "{\"statements\":[[11,\"h1\",[]],[13],[0,\"facebook\"],[14]],\"locals\":[],\"named\":[],\"yields\":[],\"hasPartials\":false}", "meta": { "moduleName": "tasks01/templates/fb.hbs" } });
+  exports.default = Ember.HTMLBars.template({ "id": "WTo120NN", "block": "{\"statements\":[[6,[\"if\"],[[28,[\"hasFacebook\"]]],null,{\"statements\":[[0,\"  \"],[19,\"comment-form\"],[0,\"\\n\"]],\"locals\":[]},{\"statements\":[[0,\"  \"],[11,\"a\",[]],[15,\"href\",\"#\"],[5,[\"action\"],[[28,[null]],\"signInToComment\"]],[13],[0,\"\\n    Sign in to comment\\n  \"],[14],[0,\"\\n\"]],\"locals\":[]}]],\"locals\":[],\"named\":[],\"yields\":[],\"hasPartials\":true}", "meta": { "moduleName": "tasks01/templates/fb.hbs" } });
 });
 define("tasks01/templates/rentals", ["exports"], function (exports) {
   "use strict";

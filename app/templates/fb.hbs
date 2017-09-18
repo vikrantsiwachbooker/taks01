@@ -1,1 +1,7 @@
-<h1>facebook</h1>
+{{#if hasFacebook}}
+  {{partial "comment-form"}}
+{{else}}
+  <a href="#" {{action 'signInToComment'}}>
+    Sign in to comment
+  </a>
+{{/if}}
